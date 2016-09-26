@@ -25,6 +25,7 @@ import java.net.Socket;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
+import eu.project.rapid.common.RapidConstants;
 import eu.project.rapid.common.RapidMessages.AnimationMsg;
 
 /**
@@ -39,9 +40,11 @@ public class PrimaryAnimationServer {
 	private static final String TAG = "PrimaryAnimationServer";
 	private ServerSocket serverSocket;
 	private static final int port = 6666;
-
+	private boolean isDsUp = false;
+	private boolean isVmmUp = false;
+	private boolean isSlamUp = false;
 	private static BlockingQueue<String> commandQueue;
-	
+
 	private static boolean isSecondAnimationServerConnected = false;
 
 	public PrimaryAnimationServer() {
@@ -50,6 +53,11 @@ public class PrimaryAnimationServer {
 
 		// Now can start listening for commands
 		//    new Thread(new CommandHandler()).start();
+
+		// Check the status of the main components running on the cloud: DS, SLAM, VMM
+		isDsUp = isServerUp("DS", RapidConstants.DEFAULT_SILO_SERVER_IP, RapidConstants.DEFAULT_DS_PORT);
+		isSlamUp = isServerUp("SLAM", RapidConstants.DEFAULT_SILO_SERVER_IP, RapidConstants.DEFAULT_SLAM_PORT);
+		isVmmUp = isServerUp("VMM", RapidConstants.DEFAULT_SILO_SERVER_IP, RapidConstants.DEFAULT_VMM_PORT);
 
 		try {
 			serverSocket = new ServerSocket(port);
@@ -92,12 +100,16 @@ public class PrimaryAnimationServer {
 					if (!isSecondAnimationServerConnected) {
 						log(TAG, "The second animation server is connected");
 						isSecondAnimationServerConnected = true;
+						out.println(isDsUp);
+						out.println(isSlamUp);
+						out.println(isVmmUp);
+						out.flush();
 						new Thread(new SecondAnimationPusher(clientSocket, in, out)).start();
-//						new Thread(new FakeMessageGenerator()).start();
+						//						new Thread(new FakeMessageGenerator()).start();
 					} else {
 						log(TAG, "Error, only one second animation server is allowed to connect");
 					}
-					
+
 				} else {
 					while (command != null) {
 
@@ -153,7 +165,7 @@ public class PrimaryAnimationServer {
 		public void run() {
 
 			new Thread(new SecondAnimationReader(clientSocket, in, out)).start();
-			
+
 			while (true) {
 				log(TAG, "Waiting for commands to push to the second animation server");
 				if (isSecondAnimationServerConnected) {
@@ -206,7 +218,7 @@ public class PrimaryAnimationServer {
 			} finally {
 				log(TAG, "Secondary animation server is gone");
 				isSecondAnimationServerConnected = false;
-				
+
 				if (out != null)
 					out.close();
 				if (in != null) {
@@ -224,14 +236,14 @@ public class PrimaryAnimationServer {
 			}
 		}
 	}
-	
+
 	private class FakeMessageGenerator implements Runnable {
 
 		@Override
 		public void run() {
-			
+
 			AnimationMsg[] msgs = AnimationMsg.values();
-			
+
 			for (int i = 0; i < 10; i++) {
 				try {
 					Thread.sleep(20 * 1000);
@@ -242,12 +254,22 @@ public class PrimaryAnimationServer {
 			}
 		}
 	}
-	
+
 	private void log(String tag, String msg) {
 		System.out.println("[" + tag + "]: " + msg);
 	}
 
 	public static void main(String[] args) {
 		new PrimaryAnimationServer();
+	}
+	
+	private boolean isServerUp(String name, String ip, int port) {
+		try (Socket dsSocket = new Socket(ip, port)) {
+			log(TAG, name + " is up");
+			return true;
+		} catch (IOException e1) {
+			log(TAG, name + " is not up");
+		}
+		return false;
 	}
 }
